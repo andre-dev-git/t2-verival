@@ -76,6 +76,31 @@ class CartDomainTest {
     }
 
     @Test
+    @DisplayName("C4 - Can add quantity exactly equal to available stock (upper boundary)")
+    void canAddQuantityEqualToStock() {
+        Cart cart = new Cart();
+        Product product = createProduct(1L, "Test Product", 10);
+
+        // Limite superior válido: quantidade == estoque disponível deve ser aceita
+        cart.addItem(product, 10);
+
+        assertThat(cart.getItems()).hasSize(1);
+        assertThat(cart.getItems().get(0).getQuantity()).isEqualTo(10);
+    }
+
+    @Test
+    @DisplayName("C5 - Cannot add quantity of stock plus one (just above boundary)")
+    void cannotAddQuantityJustAboveStock() {
+        Cart cart = new Cart();
+        Product product = createProduct(1L, "Test Product", 10);
+
+        // Logo acima do limite: estoque + 1 deve ser rejeitado
+        assertThatThrownBy(() -> cart.addItem(product, 11))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Insufficient stock");
+    }
+
+    @Test
     @DisplayName("Empty cart returns true for isEmpty")
     void emptyCartReturnsTrue() {
         Cart cart = new Cart();
