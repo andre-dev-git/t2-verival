@@ -1,0 +1,1213 @@
+{
+    "info": {
+        "name": "Cart Checkout + Mock Payment System",
+        "description": "Postman collection for the CodeQuests Cart Checkout + Mock Payment System. Covers the full happy path, payment failure and retry, duplicate webhook handling, opposite webhook handling, checkout/payment idempotency, cart modification, and validation edge cases.",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:8080",
+            "type": "string"
+        },
+        {
+            "key": "productId",
+            "value": "1",
+            "type": "string"
+        },
+        {
+            "key": "cartId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "cartItemId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "orderId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "paymentId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "failedPaymentId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "retryPaymentId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "idempotentOrderId",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "idempotentPaymentId",
+            "value": "",
+            "type": "string"
+        }
+    ],
+    "item": [
+        {
+            "name": "00 - Product APIs",
+            "item": [
+                {
+                    "name": "00.01 - Get Products",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/products",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "products"
+                            ]
+                        },
+                        "description": "Returns the seeded products. Use one of the product IDs in later cart requests."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Products returned', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    const products = pm.response.json();",
+                                    "    pm.expect(products.length).to.be.above(0);",
+                                    "    pm.collectionVariables.set('productId', products[0].id);",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "00.02 - Get Product By ID",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/products/{{productId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "products",
+                                "{{productId}}"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Product returned', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    pm.expect(pm.response.json().id).to.eql(Number(pm.collectionVariables.get('productId')));",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "01 - Happy Path Full Flow",
+            "description": "Required Flow 1: Create cart, add items, checkout, start payment, provider confirms, order becomes PAID.",
+            "item": [
+                {
+                    "name": "01.01 - Create Cart",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/carts",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Cart created', function () {",
+                                    "    pm.response.to.have.status(201);",
+                                    "    const body = pm.response.json();",
+                                    "    pm.expect(body.status).to.eql('OPEN');",
+                                    "    pm.collectionVariables.set('cartId', body.id);",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "01.02 - Add Item To Cart",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"productId\": {{productId}},\n  \"quantity\": 2\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/carts/{{cartId}}/items",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts",
+                                "{{cartId}}",
+                                "items"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Item added', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    const body = pm.response.json();",
+                                    "    pm.expect(body.items.length).to.be.above(0);",
+                                    "    pm.collectionVariables.set('cartItemId', body.items[0].id);",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "01.03 - Update Cart Item Quantity",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"quantity\": 3\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/carts/{{cartId}}/items/{{cartItemId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts",
+                                "{{cartId}}",
+                                "items",
+                                "{{cartItemId}}"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Item updated', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    pm.expect(pm.response.json().items[0].quantity).to.eql(3);",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "01.04 - Get Cart",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/carts/{{cartId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts",
+                                "{{cartId}}"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Cart returned', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    pm.expect(pm.response.json().status).to.eql('OPEN');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "01.05 - Checkout Cart",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/carts/{{cartId}}/checkout",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts",
+                                "{{cartId}}",
+                                "checkout"
+                            ]
+                        },
+                        "description": "Creates an order, locks the cart, subtracts stock once, and stores unitPrice snapshot in order items."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Order created from checkout', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    const body = pm.response.json();",
+                                    "    pm.expect(body.status).to.eql('CREATED');",
+                                    "    pm.collectionVariables.set('orderId', body.id);",
+                                    "    pm.collectionVariables.set('idempotentOrderId', body.id);",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "01.06 - Checkout Same Cart Again - Idempotency",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/carts/{{cartId}}/checkout",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts",
+                                "{{cartId}}",
+                                "checkout"
+                            ]
+                        },
+                        "description": "Should return the same existing order and must not subtract stock again."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Checkout is idempotent', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    const body = pm.response.json();",
+                                    "    pm.expect(String(body.id)).to.eql(String(pm.collectionVariables.get('idempotentOrderId')));",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "01.07 - Start Payment",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/orders/{{orderId}}/payment/start",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "orders",
+                                "{{orderId}}",
+                                "payment",
+                                "start"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Payment started', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    const body = pm.response.json();",
+                                    "    pm.expect(body.status).to.eql('PENDING');",
+                                    "    pm.collectionVariables.set('paymentId', body.id);",
+                                    "    pm.collectionVariables.set('idempotentPaymentId', body.id);",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "01.08 - Start Payment Again - Idempotency",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/orders/{{orderId}}/payment/start",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "orders",
+                                "{{orderId}}",
+                                "payment",
+                                "start"
+                            ]
+                        },
+                        "description": "Should return the same PENDING payment and not create another active payment."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Payment start is idempotent while pending', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    const body = pm.response.json();",
+                                    "    pm.expect(String(body.id)).to.eql(String(pm.collectionVariables.get('idempotentPaymentId')));",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "01.09 - Mock Provider Confirms Payment",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"result\": \"CONFIRMED\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/mock-provider/payments/{{paymentId}}/result",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mock-provider",
+                                "payments",
+                                "{{paymentId}}",
+                                "result"
+                            ]
+                        },
+                        "description": "Mock provider calls POST /payments/webhook over HTTP."
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Payment confirmed and order paid', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    const body = pm.response.json();",
+                                    "    pm.expect(body.paymentStatus).to.eql('CONFIRMED');",
+                                    "    pm.expect(body.orderStatus).to.eql('PAID');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "01.10 - Get Paid Order",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/orders/{{orderId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "orders",
+                                "{{orderId}}"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Order is PAID', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    pm.expect(pm.response.json().status).to.eql('PAID');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "02 - Required Flow: Payment Failure Then Retry Success",
+            "description": "Required Flow 2: Start payment, provider sends FAILED, order becomes PAYMENT_FAILED, start payment again, provider confirms, order becomes PAID.",
+            "item": [
+                {
+                    "name": "02.01 - Create Cart For Failure Retry Flow",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/carts",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Cart created', function () {",
+                                    "    pm.response.to.have.status(201);",
+                                    "    pm.collectionVariables.set('cartId', pm.response.json().id);",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "02.02 - Add Item",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"productId\": 2,\n  \"quantity\": 1\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/carts/{{cartId}}/items",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts",
+                                "{{cartId}}",
+                                "items"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Item added', function () { pm.response.to.have.status(200); });"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "02.03 - Checkout Cart",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/carts/{{cartId}}/checkout",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts",
+                                "{{cartId}}",
+                                "checkout"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Order created', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    pm.collectionVariables.set('orderId', pm.response.json().id);",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "02.04 - Start First Payment",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/orders/{{orderId}}/payment/start",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "orders",
+                                "{{orderId}}",
+                                "payment",
+                                "start"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('First payment started', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    pm.collectionVariables.set('failedPaymentId', pm.response.json().id);",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "02.05 - Mock Provider Fails First Payment",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"result\": \"FAILED\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/mock-provider/payments/{{failedPaymentId}}/result",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mock-provider",
+                                "payments",
+                                "{{failedPaymentId}}",
+                                "result"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('First payment failed', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    const body = pm.response.json();",
+                                    "    pm.expect(body.paymentStatus).to.eql('FAILED');",
+                                    "    pm.expect(body.orderStatus).to.eql('PAYMENT_FAILED');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "02.06 - Start Payment Again After Failure",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/orders/{{orderId}}/payment/start",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "orders",
+                                "{{orderId}}",
+                                "payment",
+                                "start"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Retry payment started as new payment', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    const body = pm.response.json();",
+                                    "    pm.collectionVariables.set('retryPaymentId', body.id);",
+                                    "    pm.expect(String(body.id)).to.not.eql(String(pm.collectionVariables.get('failedPaymentId')));",
+                                    "    pm.expect(body.status).to.eql('PENDING');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "02.07 - Mock Provider Confirms Retry Payment",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"result\": \"CONFIRMED\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/mock-provider/payments/{{retryPaymentId}}/result",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mock-provider",
+                                "payments",
+                                "{{retryPaymentId}}",
+                                "result"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Retry payment confirmed', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    const body = pm.response.json();",
+                                    "    pm.expect(body.paymentStatus).to.eql('CONFIRMED');",
+                                    "    pm.expect(body.orderStatus).to.eql('PAID');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "03 - Required Flow: Duplicate Webhook Handling",
+            "description": "Required Flow 3: Same webhook may arrive twice. System must remain correct with no duplicate transition or corrupted state.",
+            "item": [
+                {
+                    "name": "03.01 - Duplicate CONFIRMED Webhook For Existing Paid Payment",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"result\": \"CONFIRMED\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/mock-provider/payments/{{retryPaymentId}}/result",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mock-provider",
+                                "payments",
+                                "{{retryPaymentId}}",
+                                "result"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Duplicate confirmed webhook ignored safely', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    const body = pm.response.json();",
+                                    "    pm.expect(body.paymentStatus).to.eql('CONFIRMED');",
+                                    "    pm.expect(body.orderStatus).to.eql('PAID');",
+                                    "    pm.expect(body.message).to.eql('Duplicate webhook ignored safely');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "03.02 - Opposite FAILED Webhook After CONFIRMED Is Ignored",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"result\": \"FAILED\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/mock-provider/payments/{{retryPaymentId}}/result",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mock-provider",
+                                "payments",
+                                "{{retryPaymentId}}",
+                                "result"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Opposite webhook ignored after final status', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    const body = pm.response.json();",
+                                    "    pm.expect(body.paymentStatus).to.eql('CONFIRMED');",
+                                    "    pm.expect(body.orderStatus).to.eql('PAID');",
+                                    "    pm.expect(body.message).to.eql('Payment already finalized; webhook ignored');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "03.03 - CONFIRMED Webhook After FAILED Payment Is Ignored",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"result\": \"CONFIRMED\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/mock-provider/payments/{{failedPaymentId}}/result",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "mock-provider",
+                                "payments",
+                                "{{failedPaymentId}}",
+                                "result"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Failed payment cannot later become confirmed', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    const body = pm.response.json();",
+                                    "    pm.expect(body.paymentStatus).to.eql('FAILED');",
+                                    "    pm.expect(body.message).to.eql('Payment already finalized; webhook ignored');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "04 - Cart Modification And Validation Edge Cases",
+            "item": [
+                {
+                    "name": "04.01 - Create Cart For Remove Item Flow",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/carts",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Cart created', function () {",
+                                    "    pm.response.to.have.status(201);",
+                                    "    pm.collectionVariables.set('cartId', pm.response.json().id);",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "04.02 - Add Item To Remove Later",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"productId\": 3,\n  \"quantity\": 2\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/carts/{{cartId}}/items",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts",
+                                "{{cartId}}",
+                                "items"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Item added', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    pm.collectionVariables.set('cartItemId', pm.response.json().items[0].id);",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "04.03 - Update Quantity To Zero Removes Item",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"quantity\": 0\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/carts/{{cartId}}/items/{{cartItemId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts",
+                                "{{cartId}}",
+                                "items",
+                                "{{cartItemId}}"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Item removed by quantity zero', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    pm.expect(pm.response.json().items.length).to.eql(0);",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "04.04 - Checkout Empty Cart Returns 400",
+                    "request": {
+                        "method": "POST",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/carts/{{cartId}}/checkout",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts",
+                                "{{cartId}}",
+                                "checkout"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Empty cart checkout rejected', function () {",
+                                    "    pm.response.to.have.status(400);",
+                                    "    pm.expect(pm.response.json().errorCode).to.eql('EMPTY_CART');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "04.05 - Add More Than Available Stock Returns 400",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"productId\": 5,\n  \"quantity\": 999\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/carts/{{cartId}}/items",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts",
+                                "{{cartId}}",
+                                "items"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Insufficient stock rejected', function () {",
+                                    "    pm.response.to.have.status(400);",
+                                    "    pm.expect(pm.response.json().errorCode).to.eql('INSUFFICIENT_STOCK');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "04.06 - Negative Quantity Validation Error",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"productId\": 1,\n  \"quantity\": -1\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/carts/{{cartId}}/items",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "carts",
+                                "{{cartId}}",
+                                "items"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Validation error returned', function () {",
+                                    "    pm.response.to.have.status(400);",
+                                    "    pm.expect(pm.response.json().errorCode).to.eql('VALIDATION_ERROR');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "name": "05 - Direct Webhook API Checks",
+            "description": "These use the webhook endpoint directly. Useful for demonstrating the actual business-critical endpoint separately from the mock provider wrapper.",
+            "item": [
+                {
+                    "name": "05.01 - Direct Webhook Duplicate Confirmed",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            }
+                        ],
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n  \"paymentId\": {{retryPaymentId}},\n  \"result\": \"CONFIRMED\"\n}"
+                        },
+                        "url": {
+                            "raw": "{{baseUrl}}/payments/webhook",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "payments",
+                                "webhook"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Direct duplicate webhook ignored safely', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    pm.expect(pm.response.json().message).to.eql('Duplicate webhook ignored safely');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "05.02 - Get Payment",
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{baseUrl}}/payments/{{retryPaymentId}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "payments",
+                                "{{retryPaymentId}}"
+                            ]
+                        }
+                    },
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Payment returned', function () {",
+                                    "    pm.response.to.have.status(200);",
+                                    "    pm.expect(pm.response.json().status).to.eql('CONFIRMED');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
